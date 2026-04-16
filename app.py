@@ -18,7 +18,7 @@ from datetime import date
 from io import BytesIO
 
 st.set_page_config(
-    page_title="Earlix Zeiterfassung",
+    page_title="+Earlix Zeiterfassung",
     page_icon="assets/logo.png",
     layout="wide"
 )
