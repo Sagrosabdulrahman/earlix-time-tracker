@@ -1,0 +1,13 @@
+# Secrets (SEHR WICHTIG!)
+.streamlit/secrets.toml
+
+# Python
+__pycache__/
+*.pyc
+
+# Virtual Environment
+.venv/
+
+# OS
+.DS_Store
+Thumbs.db
