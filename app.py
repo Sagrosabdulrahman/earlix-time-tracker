@@ -26,6 +26,9 @@ st.set_page_config(
 
 col1, col2 = st.columns([4, 1])
 
+st.sidebar.markdown("TEST Umgebung")
+st.sidebar.info("DEV Version")
+
 with col1:
     st.title("Stundenkontierung⌚")
 
