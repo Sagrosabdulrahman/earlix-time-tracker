@@ -1,9 +1,11 @@
 import streamlit as st
 
+#Hochladen der UnterCodes
 from supabase import create_client
 from modules.admin_overview import show_admin_overview_page
 from modules.milestones import show_milestones_page
 from modules.hours import show_hours
+from modules.dashboard import show_dashboard
 
 import pandas as pd
 from datetime import date
@@ -22,7 +24,7 @@ from datetime import date
 from io import BytesIO
 
 st.set_page_config(
-    page_title="Earlix Zeiterfassung",
+    page_title="Earlix Zeiterfassung V2",
     page_icon="assets/logo.png",
     layout="wide"
 )
@@ -32,12 +34,19 @@ col1, col2 = st.columns([4, 1])
 
 
 st.sidebar.markdown(
-    "<div style='background-color: #E6D6FF; padding: 10px; border-radius: 8px; text-align: center; font-weight: bold;'>Produktiv</div>",
+    "<div style='background-color: #54A4F5; color: white; padding: 10px; border-radius: 8px; text-align: center; font-weight: bold;'>Produktiv</div>",
     unsafe_allow_html=True
 )
 
+###st.sidebar.markdown(
+###    "<div style='background-color: #287233; color: white; padding: 10px; border-radius: 8px; text-align: center; font-weight: bold;'>Entwicklung</div>",
+###    unsafe_allow_html=True
+###)
+
+
+
 with col1:
-    st.title("Stundenkontierung⌚")
+    st.title("Earlix Zeiterfassung V2")
 
 with col2:
     st.image("assets/logo.png", width=120)
@@ -102,7 +111,6 @@ else:
     #Einloggenbereich---------------------------------------------------------
     st.success(f"Eingeloggt als: {st.session_state.user.email}")
     
-    st.write("User ID:", st.session_state.user.id)
 
     profile_response = supabase.table("profiles") \
         .select("*") \
@@ -121,8 +129,7 @@ else:
     menu_options = [
         "Stunden eintragen",
         "Meine Stunden",
-        "Stunden korrigieren",
-        "Stunden löschen"
+        "Dashboard"
     ]
 
     if is_admin:
@@ -186,7 +193,8 @@ else:
             profile=profile,
             start_date=start_date,
             end_date=end_date,
-            reverse_milestone_map_all=reverse_milestone_map_all
+            reverse_milestone_map_all=reverse_milestone_map_all,
+            milestone_map_active=milestone_map_active
         )
     
     entries_response = supabase.table("time_entries") \
@@ -204,99 +212,7 @@ else:
         for e in entries
     }
         
-        
-    if menu == "Stunden korrigieren":
-        st.subheader("Stunden korrigieren")
 
-        if len(entries) > 0:
-            entry_options = {
-                f'{e["id"]} | {e["entry_date"]} | {reverse_milestone_map_all.get(e["milestone_id"], e["milestone_id"])} | {e["task_text"]}': e
-                for e in entries
-            }
-        
-            selected_entry_label = st.selectbox(
-                "Eintrag auswählen",
-                options=list(entry_options.keys())
-            )
-        
-            selected_entry = entry_options[selected_entry_label]
-        
-            milestone_titles = list(milestone_map_active.keys())
-            current_milestone_title = reverse_milestone_map_all.get(selected_entry["milestone_id"])
-        
-            with st.form("edit_entry_form"):
-                edit_date = st.date_input(
-                    "Datum bearbeiten",
-                    value=pd.to_datetime(selected_entry["entry_date"]).date()
-                )
-        
-                edit_milestone = st.selectbox(
-                    "Meilenstein bearbeiten",
-                    options=milestone_titles,
-                    index=milestone_titles.index(current_milestone_title) if current_milestone_title in milestone_titles else 0
-                )
-        
-                edit_task = st.text_input(
-                    "Aufgabe bearbeiten",
-                    value=selected_entry["task_text"]
-                )
-        
-                edit_hours = st.number_input(
-                    "Stunden bearbeiten",
-                    min_value=0.5,
-                    max_value=12.0,
-                    step=0.5,
-                    value=float(selected_entry["hours"])
-                )
-        
-                edit_comment = st.text_area(
-                    "Kommentar bearbeiten",
-                    value=selected_entry["comment"] or ""
-                )
-        
-                save_edit = st.form_submit_button("Änderungen speichern")
-        
-            if save_edit:
-                supabase.table("time_entries") \
-                    .update({
-                        "entry_date": str(edit_date),
-                        "milestone_id": milestone_map_active[edit_milestone],
-                        "task_text": edit_task,
-                        "hours": edit_hours,
-                        "comment": edit_comment
-                    }) \
-                    .eq("id", selected_entry["id"]) \
-                    .execute()
-        
-                st.success("Eintrag aktualisiert ✅")
-                st.rerun()
-
-    if menu == "Stunden löschen":
-        st.subheader("Stunden löschen")
-        
-        
-        if len(entries) > 0:
-            delete_entry_label = st.selectbox(
-                "Eintrag zum Löschen auswählen",
-                options=list(entry_options.keys()),
-                key="delete_select"
-            )
-
-            delete_entry = entry_options[delete_entry_label]
-            
-            confirm_delete = st.checkbox("Ich möchte diesen Eintrag wirklich löschen.")
-            
-            if st.button("Eintrag löschen"):
-                if confirm_delete:
-                    supabase.table("time_entries") \
-                        .delete() \
-                        .eq("id", delete_entry["id"]) \
-                        .execute()
-
-                    st.success("Eintrag gelöscht ✅")
-                    st.rerun()
-                else:
-                    st.warning("Bitte Löschung bestätigen.")
 
 
     if menu == "Stunden eintragen":
@@ -339,7 +255,13 @@ else:
             dataframe_to_excel_bytes=dataframe_to_excel_bytes
         )
         
-
+    if menu == "Dashboard":
+        show_dashboard(
+            supabase=supabase,
+            start_date=start_date,
+            end_date=end_date,
+            reverse_milestone_map_all=reverse_milestone_map_all
+        )
 
     
     if menu == "Meilensteine verwalten" and is_admin:
