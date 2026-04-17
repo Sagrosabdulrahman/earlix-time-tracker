@@ -1,9 +1,5 @@
 import streamlit as st
-
 from supabase import create_client
-from modules.admin_overview import show_admin_overview_page
-from modules.milestones import show_milestones_page
-from modules.hours import show_hours
 
 import pandas as pd
 from datetime import date
@@ -22,7 +18,7 @@ from datetime import date
 from io import BytesIO
 
 st.set_page_config(
-    page_title="Earlix Zeiterfassung",
+    page_title="+Earlix Zeiterfassung",
     page_icon="assets/logo.png",
     layout="wide"
 )
@@ -30,11 +26,8 @@ st.set_page_config(
 
 col1, col2 = st.columns([4, 1])
 
-
-st.sidebar.markdown(
-    "<div style='background-color: #E6D6FF; padding: 10px; border-radius: 8px; text-align: center; font-weight: bold;'>Produktiv</div>",
-    unsafe_allow_html=True
-)
+st.sidebar.markdown("TEST Umgebung")
+st.sidebar.info("DEV Version")
 
 with col1:
     st.title("Stundenkontierung⌚")
@@ -131,7 +124,7 @@ else:
 
     menu = st.sidebar.radio("Navigation", menu_options)
 
-
+    st.sidebar.success(f"Eingeloggt als:\n{st.session_state.user.email}")
     
     
 
@@ -178,16 +171,33 @@ else:
         end_date = f"{selected_year}-{selected_month + 1:02d}-01"
     
     
-
-
     if menu == "Meine Stunden":
-        show_hours(
-            supabase=supabase,
-            profile=profile,
-            start_date=start_date,
-            end_date=end_date,
-            reverse_milestone_map_all=reverse_milestone_map_all
-        )
+        st.subheader("Meine Stunden")
+
+        entries_response = supabase.table("time_entries") \
+            .select("id, entry_date, milestone_id, task_text, hours, comment") \
+            .eq("user_id", profile["id"]) \
+            .gte("entry_date", start_date) \
+            .lt("entry_date", end_date) \
+            .order("entry_date", desc=False) \
+            .execute()
+    
+        entries = entries_response.data
+        if len(entries) == 0:
+            st.info("Für diesen Monat wurden noch keine Stunden erfasst.")
+        else:
+            df = pd.DataFrame(entries)
+    
+            df["milestone"] = df["milestone_id"].map(reverse_milestone_map_all)
+            
+            df = df[["entry_date", "milestone", "task_text", "hours", "comment"]]
+            df.columns = ["Datum", "Meilenstein", "Aufgabe", "Stunden", "Kommentar"]
+            
+            st.dataframe(df, use_container_width=True, hide_index=True)
+            
+            total_hours = df["Stunden"].sum()
+            st.metric("Gesamtstunden im Monat", f"{total_hours:.2f} h")
+        
     
     entries_response = supabase.table("time_entries") \
         .select("id, entry_date, milestone_id, task_text, hours, comment") \
@@ -327,23 +337,217 @@ else:
 
 
     if menu == "Admin-Übersicht" and is_admin:
-        show_admin_overview_page(
-            supabase=supabase,
-            is_admin=is_admin,
-            start_date=start_date,
-            end_date=end_date,
-            reverse_milestone_map_all=reverse_milestone_map_all,
-            selected_year=selected_year,
-            selected_month=selected_month,
-            dataframe_to_csv_bytes=dataframe_to_csv_bytes,
-            dataframe_to_excel_bytes=dataframe_to_excel_bytes
-        )
+        st.header("Admin-Übersicht")
         
+        admin_entries_response = supabase.table("time_entries") \
+            .select("entry_date, user_id, milestone_id, task_text, hours, comment") \
+            .gte("entry_date", start_date) \
+            .lt("entry_date", end_date) \
+            .order("entry_date", desc=False) \
+            .execute()
+
+        admin_entries = admin_entries_response.data
+
+        profiles_response = supabase.table("profiles") \
+            .select("id, full_name") \
+            .execute()
+
+        all_profiles = profiles_response.data
+        user_map = {p["id"]: p["full_name"] for p in all_profiles}
 
 
     
+        if len(admin_entries) == 0:
+            st.info("Für diesen Monat liegen noch keine Einträge vor.")
+        else:
+            admin_df = pd.DataFrame(admin_entries)
+            
+            admin_df["Mitarbeiter"] = admin_df["user_id"].map(user_map)
+            admin_df["Meilenstein"] = admin_df["milestone_id"].map(reverse_milestone_map_all)
+            
+            admin_df = admin_df[["entry_date", "Mitarbeiter", "Meilenstein", "task_text", "hours", "comment"]]
+            admin_df.columns = ["Datum", "Mitarbeiter", "Meilenstein", "Aufgabe", "Stunden", "Kommentar"]
+            
+            st.subheader("Alle Einträge")
+            st.dataframe(admin_df, use_container_width=True, hide_index=True)
+
+            st.subheader("Stunden nach Mitarbeiter und Meilenstein")
+            pivot_df = admin_df.pivot_table(
+                index="Mitarbeiter",
+                columns="Meilenstein",
+                values="Stunden",
+                aggfunc="sum",
+                fill_value=0
+            )
+
+            st.dataframe(pivot_df, use_container_width=True)
+    
+            total_admin_hours = admin_df["Stunden"].sum()
+            st.metric("Gesamtstunden aller Mitarbeiter", f"{total_admin_hours:.2f} h")
+            
+            csv_data = dataframe_to_csv_bytes(admin_df)
+            excel_data = dataframe_to_excel_bytes(admin_df, sheet_name="Alle_Eintraege")
+    
+            col1, col2 = st.columns(2)
+    
+            with col1:
+                st.download_button(
+                    label="CSV herunterladen",
+                    data=csv_data,
+                    file_name=f"earlix_zeiterfassung_{selected_year}_{selected_month:02d}.csv",
+                    mime="text/csv"
+                )
+    
+            with col2:
+                st.download_button(
+                    label="Excel herunterladen",
+                    data=excel_data,
+                    file_name=f"earlix_zeiterfassung_{selected_year}_{selected_month:02d}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+    
+            pivot_export_df = pivot_df.reset_index()
+    
+            pivot_csv_data = dataframe_to_csv_bytes(pivot_export_df)
+            pivot_excel_data = dataframe_to_excel_bytes(
+                pivot_export_df,
+                sheet_name="Pivot_Mitarbeiter_Meilenstein"
+            )
+    
+            col3, col4 = st.columns(2)
+    
+            with col3:
+                st.download_button(
+                    label="Pivot als CSV herunterladen",
+                    data=pivot_csv_data,
+                    file_name=f"earlix_pivot_{selected_year}_{selected_month:02d}.csv",
+                    mime="text/csv"
+                )
+    
+            with col4:
+                st.download_button(
+                    label="Pivot als Excel herunterladen",
+                    data=pivot_excel_data,
+                    file_name=f"earlix_pivot_{selected_year}_{selected_month:02d}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+
+    
     if menu == "Meilensteine verwalten" and is_admin:
-        show_milestones_page(supabase, is_admin)
+        st.header("Meilensteine verwalten")
+
+        milestones_admin_response = supabase.table("milestones") \
+            .select("id, title, description, is_active, created_at") \
+            .order("created_at", desc=False) \
+            .execute()
+
+        milestones_admin = milestones_admin_response.data or []
+
+        st.subheader("Neuen Meilenstein anlegen")
+
+        with st.form("create_milestone_form"):
+            new_id = st.text_input("Meilenstein-ID", placeholder="z. B. MS-001")
+            new_title = st.text_input("Titel")
+            new_description = st.text_area("Beschreibung")
+            create_milestone = st.form_submit_button("Meilenstein anlegen")
+
+        if create_milestone:
+            if not new_id.strip():
+                st.warning("Bitte eine Meilenstein-ID eingeben.")
+            elif not new_title.strip():
+                st.warning("Bitte einen Titel eingeben.")
+            else:
+                try:
+                
+                    supabase.table("milestones").insert({
+                        "id": new_id.strip(),
+                        "title": new_title.strip(),
+                        "description": new_description.strip(),
+                        "is_active": True
+                    }).execute()
+
+                    st.success("Meilenstein angelegt ✅")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Fehler beim Anlegen: {e}")
+        st.divider()
+        st.subheader("Vorhandene Meilensteine")
+
+        if len(milestones_admin) == 0:
+            st.info("Es sind noch keine Meilensteine vorhanden.")
+        else:
+            milestone_options = {
+                f'{m["id"]} | {m["title"]} | {"Offen" if m["is_active"] else "Geschlossen"}': m
+                for m in milestones_admin
+            }
+
+            selected_milestone_label = st.selectbox(
+                "Meilenstein auswählen",
+                options=list(milestone_options.keys())
+            )
+
+            selected_milestone = milestone_options[selected_milestone_label]
+
+            st.markdown("### Meilenstein bearbeiten")
+
+            with st.form("edit_milestone_form"):
+                edit_title = st.text_input("Titel bearbeiten", value=selected_milestone["title"])
+                edit_description = st.text_area(
+                    "Beschreibung bearbeiten",
+                    value=selected_milestone["description"] or ""
+                )
+                edit_is_active = st.checkbox(
+                    "Meilenstein offen für Stundeneinträge",
+                    value=selected_milestone["is_active"]
+                )
+
+                save_milestone = st.form_submit_button("Änderungen speichern")
+
+            if save_milestone:
+                if not edit_title.strip():
+                    st.warning("Der Titel darf nicht leer sein.")
+                else:
+                    supabase.table("milestones") \
+                        .update({
+                            "title": edit_title.strip(),
+                            "description": edit_description.strip(),
+                            "is_active": edit_is_active
+                        }) \
+                        .eq("id", selected_milestone["id"]) \
+                        .execute()
+
+                    st.success("Meilenstein aktualisiert ✅")
+                    st.rerun()
+
+            st.markdown("### Meilenstein löschen")
+
+            milestone_entry_check = supabase.table("time_entries") \
+                .select("id", count="exact") \
+                .eq("milestone_id", selected_milestone["id"]) \
+                .execute()
+
+            entry_count = milestone_entry_check.count if milestone_entry_check.count is not None else 0
+
+            st.write(f"Verknüpfte Einträge: {entry_count}")
+
+            confirm_delete_milestone = st.checkbox(
+                "Ich möchte diesen Meilenstein wirklich löschen.",
+                key="confirm_delete_milestone"
+            )
+
+            if st.button("Meilenstein löschen"):
+                if entry_count > 0:
+                    st.error("Löschen nicht möglich: Dieser Meilenstein hat bereits Stundeneinträge.")
+                elif not confirm_delete_milestone:
+                    st.warning("Bitte Löschung bestätigen.")
+                else:
+                    supabase.table("milestones") \
+                        .delete() \
+                        .eq("id", selected_milestone["id"]) \
+                        .execute()
+
+                    st.success("Meilenstein gelöscht ✅")
+                    st.rerun()
 
     if st.sidebar.button("Logout"):
         try:
