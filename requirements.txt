@@ -1,14 +1,4 @@
-<<<<<<< HEAD
 streamlit
 supabase
 pandas
 openpyxl
-postgrest
-gotrue
-realtime
-=======
-streamlit
-supabase
-pandas
-openpyxl
->>>>>>> dev
